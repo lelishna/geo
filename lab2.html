@@ -1,0 +1,129 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ==" crossorigin=""/>
+</head>
+<body>
+<div style="margin-bottom: 10px;">
+    <h2>Лабораторная работа №2</h2>
+    <div>
+        <div>Подсчитать плотность покрытия услуг в выбранном районе.</div>
+        <br>
+    <div>Выберите услугу:</div>
+        <input type="radio" id="pharmacy"
+               name="amenity" value="pharmacy">
+        <label for="pharmacy">Аптека</label>
+
+        <input type="radio" id="fuel"
+               name="amenity" value="fuel">
+        <label for="fuel">АЗС</label>
+
+        <input type="radio" id="cafe"
+               name="amenity" value="cafe">
+        <label for="cafe">Кафе</label>
+
+        <input type="radio" id="car_wash"
+               name="amenity" value="car_wash">
+        <label for="car_wash">Автомойка</label>
+
+        <input type="radio" id="dentist"
+               name="amenity" value="dentist">
+        <label for="dentist">Стомат. клиники</label>
+
+        <input type="radio" id="restaurant"
+               name="amenity" value="restaurant">
+        <label for="restaurant">Ресторан</label>
+
+        <input id="query-button" type="button" value="Подсчитать">
+        <br>
+        <div>Количество: <span id="count">0</span></div>
+    </div>
+</div>
+<div id="mapid" style="width: 600px; height: 400px;"></div>
+<script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js" integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew==" crossorigin=""></script>
+<script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+<script src="https://unpkg.com/osmtogeojson@2.2.12/osmtogeojson.js"></script>
+<script>
+    var x = 58.014965,
+        y = 56.246723;
+    var mymap = L.map('mapid').setView([x, y], 15),
+        tilelayerId = 0;
+
+    L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw', {
+        maxZoom: 15,
+        attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors, ' +
+            '<a href="https://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, ' +
+            'Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
+        id: 'mapbox/streets-v11',
+        tileSize: 512,
+        zoomOffset: -1
+    }).addTo(mymap);
+
+    mymap.eachLayer(function (layer) {
+        //console.log(layer['_leaflet_id']);
+        tilelayerId = layer['_leaflet_id'];
+    });
+
+    function buildOverpassApiUrl(map, overpassQuery) {
+        var bounds = map.getBounds().getSouth() + ',' + map.getBounds().getWest() + ',' + map.getBounds().getNorth() + ',' + map.getBounds().getEast();
+        var nodeQuery = 'node[amenity=' + overpassQuery + '](' + bounds + ');';
+        var wayQuery = 'way[amenity=' + overpassQuery + '](' + bounds + ');';
+        var relationQuery = 'relation[amenity=' + overpassQuery + '](' + bounds + ');';
+        var query = '?data=[out:json][timeout:15];(' + nodeQuery + wayQuery + relationQuery + ');out body geom;';
+        var baseUrl = 'http://overpass-api.de/api/interpreter';
+        var resultUrl = baseUrl + query;
+        return resultUrl;
+    }
+
+    $("#query-button").click(function () {
+
+        mymap.eachLayer(function (layer) {
+            !(layer['_leaflet_id'] === tilelayerId) ? mymap.removeLayer(layer) : {};
+        });
+
+        var queryTextfieldValue = $('input[name="amenity"]:checked').val();
+        var overpassApiUrl = buildOverpassApiUrl(mymap,queryTextfieldValue);
+
+        $.get(overpassApiUrl, function (osmDataAsJson) {
+            var resultAsGeojson = osmtogeojson(osmDataAsJson);
+            $('#count').text(resultAsGeojson.features.length);
+            //console.log(resultAsGeojson);
+            var resultLayer = L.geoJson(resultAsGeojson, {
+                style: function (feature) {
+                    return {color: "#ff0000"};
+                },
+                filter: function (feature, layer) {
+                    var isPolygon = (feature.geometry) && (feature.geometry.type !== undefined) && (feature.geometry.type === "Polygon");
+                    if (isPolygon) {
+                        feature.geometry.type = "Point";
+                        var polygonCenter = L.latLngBounds(feature.geometry.coordinates[0]).getCenter();
+                        feature.geometry.coordinates = [ polygonCenter.lat, polygonCenter.lng ];
+                    }
+                    return true;
+                },
+                onEachFeature: function (feature, layer) {
+                    var popupContent = "";
+                    popupContent = popupContent + "<dt>@id</dt><dd>" + feature.properties.type + "/" + feature.properties.id + "</dd>";
+                    var keys = Object.keys(feature.properties.tags);
+                    keys.forEach(function (key) {
+                        popupContent = popupContent + "<dt>" + key + "</dt><dd>" + feature.properties.tags[key] + "</dd>";
+                    });
+                    popupContent = popupContent + "</dl>"
+                    layer.bindPopup(popupContent);
+
+                }
+            }).addTo(mymap);
+            //console.log(resultLayer._leaflet_id)
+        });
+    });
+
+
+</script>
+
+
+
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Example: Overpass-API with Leaflet.js</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+</head>
+<body>
+<div>
+    <div>
+        <h2>Лабораторная работа №1</h2>
+        <div>
+            <div>Подсчитать население в выбранном районе города.</div>
+            <br>
+            <label>Введите город, район:</label>
+            <input id="query-textfield" value="Пермь, Индустриальный район" size="50">
+            <input id="query-button" type="button" value="Подсчитать">
+            <div>Реальное население: <span id="real-pop">0</span></div>
+            <div>Подсчитанное население: <span id="count-pop">0</span></div>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+<script src="https://unpkg.com/osmtogeojson@2.2.12/osmtogeojson.js"></script>
+<script>
+
+    function count(jsonData) {
+        var counter = jsonData.features.length,
+            population = 0;
+
+        for (var i = 0; i < counter; i++) {
+            var props = jsonData.features[i].properties;
+
+            if (!props.tags.hasOwnProperty('amenity')
+                || !props.tags.hasOwnProperty('shop')
+                || !props.tags.hasOwnProperty('tourism')
+                || !props.tags.hasOwnProperty('name')
+            ) {
+                // вычисляем этажность дома и исходя из этого прибавляем усредненное количество человек, проживающих в доме
+                if (props.tags.hasOwnProperty('building:levels')) {
+                    var lvl = Number.parseInt(props.tags['building:levels']);
+                    switch (lvl) {
+                        case 1:
+                            population += 3;
+                            break;
+                        case 2:
+                            if (props.tags.building === 'apartments') {
+                                population += 48;
+                            }// else population += 1; // 5 если частный дом или непонятно какой дом вообще
+                            break;
+                        case 3:
+                            population += 56;
+                            break;
+                        case 5:
+                            population += 200;
+                            break;
+                        case 9:
+                            population += 600;
+                            break;
+                        case 16:
+                            population += 336;
+                            break;
+                        case 25:
+                            population += 500;
+                            break;
+                        default:
+                            population += 1;
+                            break;
+                    }
+                }
+            }
+        }
+        //console.log(population)
+        return population;
+    }
+
+    $("#query-button").click(function () {
+
+        $('#real-pop').text('0');
+        $('#count-pop').text('0');
+
+        var regionName = $("#query-textfield").val(),
+            urlN = 'http://nominatim.openstreetmap.org/search', // идшник района тут получить
+            urlOP = 'http://overpass-api.de/api/interpreter';
+        
+        var id = 0;
+
+        $.ajax({
+            type: "GET",
+            async: false,
+            url: urlN,
+            data: {
+                q: regionName,
+                format: "json",
+                polygon_geojson: 1
+            },
+            success: function (data) {
+                $.each(data, function (ix, place) {
+                    if (place.class === 'boundary') {
+                        id = place.osm_id; //идшник района надо запомнить
+                    }
+                });
+            }
+        });
+
+        //console.log(id);
+        if (id > 0) {
+
+            //через какое-то время перестают проходить запросы
+            var queryRealPop = '?data=[out:json];relation(' + id + ');out;';
+            $.ajax({
+                type: 'GET',
+                async: true,
+                url: urlOP + queryRealPop,
+                success: function (data) {
+                    //console.log(data)
+                    $('#real-pop').text(data.elements[0].tags.population);
+                }
+            });
+
+            var areaId = 3600000000 + id; //1268697 + 3600000000
+            var params = '?data=' +
+                '[maxsize:1073741824]' +
+                '[out:json]' +
+                '[timeout:900];' +
+                'area(' + areaId + ')->.a;' +
+                'out body qt;' +
+                '(' +
+                'relation' +
+                '(area.a)' +
+                '["building"~"dormitory|apartments|bungalow|detached|house|residential|yes"];' +
+                'way' +
+                '(area.a)' +
+                '["building"~"dormitory|apartments|bungalow|detached|house|residential|yes"];' +
+                'node' +
+                '(area.a)' +
+                '["building"~"dormitory|apartments|bungalow|detached|house|residential|yes"];' +
+                ');' +
+                'out body qt;' +
+                '>;' +
+                'out skel qt;';
+            var resultUrl = urlOP + params;
+            //console.log(resultUrl);
+            $.ajax({
+                type: "GET",
+                async: false,
+                url: resultUrl,
+                success: function (data) {
+                    var jsonData = osmtogeojson(data);
+                    //console.log(jsonData);
+                    var result = count(jsonData);
+                    $('#count-pop').text(result);
+                }
+            });
+        }
+    });
+</script>
+</body>
+</html>
